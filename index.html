@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kiosk</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="scanline-bar"></div>
+    <header class="header">
+        <div class="logo-area">
+            <h1 class="glow-text">Kiosk</h1>
+            <p style="color:var(--latte); font-family:monospace;">Kiosk</p>
+        </div>
+        <button onclick="toggleCart()" style="background:#000; border:2px solid var(--neon-cyan); color:var(--neon-cyan); padding:10px 20px; cursor:pointer; font-weight:bold;">
+            🛒 CART (<span id="cart-count">0</span>)
+        </button>
+    </header>
+
+    <div class="category-nav" style="display:flex; justify-content:center; gap:15px; margin:25px 0;">
+        <button class="tab-link active" onclick="filterMenu('coffee', this)">COFFEE</button>
+        <button class="tab-link" onclick="filterMenu('snacks', this)">SNACKS</button>
+    </div>
+
+    <div id="menu-display" class="menu-grid"></div>
+
+    <div id="toast" class="toast">Added to cart!</div>
+
+    <div id="quantityModal" class="modal">
+        <div class="modal-content" style="text-align:center; width:300px;">
+            <h3 style="color:var(--neon-cyan); margin-top:0;">SELECT QUANTITY</h3>
+            <p id="modalItemName" style="color:white; font-size:1.2rem;"></p>
+            
+            <div class="qty-selector">
+                <button onclick="changeQty(-1)">-</button>
+                <span id="modalQty">1</span>
+                <button onclick="changeQty(1)">+</button>
+            </div>
+            
+            <div style="display:flex; gap:10px; margin-top:20px;">
+                <button onclick="closeQtyModal()" style="flex:1; padding:10px; background:#444; color:white; border:none; cursor:pointer;">CANCEL</button>
+                <button onclick="confirmAddToCart()" style="flex:1; padding:10px; background:var(--neon-cyan); color:black; border:none; font-weight:bold; cursor:pointer;">CONFIRM</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="cartModal" class="modal">
+        <div class="modal-content">
+            <h2 style="color:var(--neon-cyan)">ORDER SUMMARY</h2>
+            <div id="cart-items"></div>
+            <h3>TOTAL: ₱<span id="cart-total">0.00</span></h3>
+            <button onclick="submitOrder()" style="width:100%; padding:15px; background:#28a745; color:#fff; border:none; font-weight:bold; cursor:pointer;">PLACE ORDER</button>
+            <button onclick="toggleCart()" style="width:100%; background:none; color:#888; border:none; margin-top:10px; cursor:pointer;">BACK TO MENU</button>
+        </div>
+    </div>
+
+    <div id="successModal" class="modal">
+        <div class="modal-content" style="border-color:#00ff00; text-align:center;">
+            <h2 style="color:#00ff00;">ORDER SENT!</h2>
+            <p>Your Order Number:</p>
+            <h1 id="orderNumDisp" style="font-size:5rem; color:#fff; margin:10px 0;">--</h1>
+            <button onclick="location.reload()" style="background:#00ff00; color:#000; border:none; padding:15px 40px; font-weight:bold; cursor:pointer;">DONE</button>
+        </div>
+    </div>
+
+    <div class="tech-footer">
+        <div class="marquee-content">
+            <span>SPAN TEXT HERE // SPAN TEXT HERE //  &nbsp;&nbsp;&nbsp;</span>
+            <span>SPAN TEXT HERE // SPAN TEXT HERE // &nbsp;&nbsp;&nbsp;</span>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = `http://${window.location.hostname}:3000`;
+        let allItems = []; 
+        let cart = []; 
+        let currentItemForModal = null;
+        let currentQty = 1;
+
+        async function loadMenu() {
+            try {
+                const res = await fetch(`${API_BASE}/api/items`);
+                allItems = await res.json();
+                filterMenu('coffee', document.querySelector('.tab-link'));
+            } catch(e) {
+                document.getElementById('menu-display').innerHTML = "<h2 style='color:red'>SERVER OFFLINE</h2>";
+            }
+        }
+
+        function filterMenu(cat, btn) {
+            document.querySelectorAll('.tab-link').forEach(b => b.classList.remove('active'));
+            if(btn) btn.classList.add('active');
+            const filtered = allItems.filter(i => i.category.toLowerCase() === cat.toLowerCase());
+            const display = document.getElementById('menu-display');
+            if(filtered.length === 0) {
+                display.innerHTML = `<h2 style="color:#555; grid-column: 1/-1; text-align:center;">NO ${cat.toUpperCase()} AVAILABLE</h2>`;
+                return;
+            }
+            display.innerHTML = filtered.map(item => `
+                <div class="card">
+                    <img src="${item.image}" style="width:100%; height:150px; object-fit:contain;" onerror="this.src='https://via.placeholder.com/150'">
+                    <h3>${item.name}</h3><p>₱${item.price}</p>
+                    <button onclick="openQtyModal('${item.name}', ${item.price})" style="width:100%; padding:10px; background:var(--latte); border:none; font-weight:bold; cursor:pointer; color:#000;">ADD TO ORDER</button>
+                </div>`).join('');
+        }
+
+        function openQtyModal(name, price) {
+            currentItemForModal = {name, price};
+            currentQty = 1;
+            document.getElementById('modalItemName').innerText = name;
+            document.getElementById('modalQty').innerText = currentQty;
+            document.getElementById('quantityModal').style.display = 'block';
+        }
+
+        function changeQty(delta) {
+            currentQty += delta;
+            if (currentQty < 1) currentQty = 1;
+            document.getElementById('modalQty').innerText = currentQty;
+        }
+
+        function closeQtyModal() {
+            document.getElementById('quantityModal').style.display = 'none';
+        }
+
+        function confirmAddToCart() {
+            const existingItem = cart.find(item => item.name === currentItemForModal.name);
+            
+            if (existingItem) {
+                existingItem.quantity += currentQty;
+            } else {
+                cart.push({
+                    name: currentItemForModal.name, 
+                    price: currentItemForModal.price, 
+                    quantity: currentQty
+                });
+            }
+            
+            updateCartCount();
+            closeQtyModal();
+            showToast();
+        }
+        
+        function showToast() {
+            const toast = document.getElementById('toast');
+            toast.className = "toast show";
+            setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 2000);
+        }
+
+        function toggleCart() { 
+            const m = document.getElementById('cartModal'); 
+            m.style.display = m.style.display === 'block' ? 'none' : 'block'; 
+            renderCart(); 
+        }
+        
+        function updateCartCount() {
+            const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+            document.getElementById('cart-count').innerText = totalItems;
+        }
+
+        function renderCart() {
+            const container = document.getElementById('cart-items'); 
+            let total = 0;
+            
+            if (cart.length === 0) {
+                container.innerHTML = "<p style='text-align:center; color:#888;'>Cart is empty</p>";
+                document.getElementById('cart-total').innerText = "0.00";
+                return;
+            }
+
+            container.innerHTML = cart.map((item, index) => {
+                const itemTotal = item.price * item.quantity;
+                total += itemTotal;
+                
+                return `
+                <div class="cart-item">
+                    <span>${item.name} x${item.quantity}</span>
+                    <div style="display:flex; align-items:center; gap:5px;">
+                        <span>₱${itemTotal.toFixed(2)}</span>
+                        <button onclick="changeCartQty(${index}, -1)" class="cart-qty-btn">-</button>
+                        <button onclick="changeCartQty(${index}, 1)" class="cart-qty-btn">+</button>
+                        <button onclick="removeItem(${index})" style="background:red; color:white; border:none; cursor:pointer; padding:2px 6px; margin-left:5px;">X</button>
+                    </div>
+                </div>`;
+            }).join('');
+            document.getElementById('cart-total').innerText = total.toFixed(2);
+        }
+
+        function changeCartQty(index, delta) {
+            cart[index].quantity += delta;
+            if (cart[index].quantity <= 0) {
+                removeItem(index);
+            } else {
+                renderCart();
+                updateCartCount();
+            }
+        }
+
+        function removeItem(i) { 
+            cart.splice(i, 1); 
+            renderCart(); 
+            updateCartCount();
+        }
+
+        async function submitOrder() {
+            if(cart.length === 0) return;
+            
+            const sum = cart.map(i => `${i.name} x${i.quantity}`).join(', '); 
+            const tot = cart.reduce((s, i) => s + (i.price * i.quantity), 0);
+            
+            const res = await fetch(`${API_BASE}/api/orders`, { 
+                method: 'POST', 
+                headers: {'Content-Type':'application/json'}, 
+                body: JSON.stringify({items: sum, total: tot}) 
+            });
+            
+            const data = await res.json();
+            document.getElementById('orderNumDisp').innerText = data.id;
+            document.getElementById('successModal').style.display = 'block';
+            document.getElementById('cartModal').style.display = 'none';
+        }
+        window.onload = loadMenu;
+    </script>
+</body>
+</html>

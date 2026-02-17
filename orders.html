@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Order Status</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .display-container { padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .display-card { background: #111; border: 1px solid #333; padding: 20px; height: 85vh; overflow: hidden; }
+        .display-header { color: var(--neon-cyan); border-bottom: 2px solid var(--neon-cyan); padding-bottom: 10px; margin-bottom: 20px; text-align: center; }
+        
+        .order-row { 
+            display: flex; 
+            justify-content: space-between; 
+            padding: 15px; 
+            border-bottom: 1px solid #222; 
+            font-family: monospace;
+            align-items: center;
+        }
+        .order-id { font-size: 2rem; color: #fff; font-weight:bold;}
+        .order-details { text-align: right; }
+        .order-items { font-size: 1.1rem; color: #aaa; margin-top: 5px; }
+        
+        .status-badge { font-size: 1.2rem; font-weight:bold; padding: 5px 10px; }
+        .status-preparing { color: #ffcc00; }
+        .status-ready { color: #00ff00; }
+        .status-canceled { color: #ff0055; text-decoration: line-through; }
+    </style>
+</head>
+<body>
+    <div class="scanline-bar"></div>
+    <header class="header">
+        <div class="logo-area">
+            <h1 class="glow-text">ORDER STATUS</h1>
+        </div>
+        <div id="clock" style="font-family: monospace; color: var(--neon-cyan); font-size: 1.5rem;"></div>
+    </header>
+
+    <div class="display-container">
+        <div class="display-card">
+            <h2 class="display-header">PREPARING</h2>
+            <div id="preparing-list"></div>
+        </div>
+        <div class="display-card">
+            <h2 class="display-header">READY / SERVED</h2>
+            <div id="ready-list"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = `http://${window.location.hostname}:3000`;
+
+        function formatItemsForDisplay(str) {
+            if (!str) return "NO ITEMS";
+            const items = str.split(', ');
+            const counts = {};
+            items.forEach(x => counts[x] = (counts[x] || 0) + 1);
+            return Object.entries(counts).map(([name, qty]) => `${qty}x ${name}`).join(' | ');
+        }
+
+        async function loadDisplay() {
+            try {
+                const res = await fetch(`${API_BASE}/api/orders/display`);
+                const orders = await res.json();
+                
+                const prepContainer = document.getElementById('preparing-list');
+                const readyContainer = document.getElementById('ready-list');
+                
+                prepContainer.innerHTML = '';
+                readyContainer.innerHTML = '';
+                
+                let prepCount = 0;
+                let readyCount = 0;
+                
+                orders.forEach(o => {
+                    let displayStatus = o.status;
+                    if (o.status === 'Pending') displayStatus = 'Preparing'; 
+                    
+                    const row = `
+                    <div class="order-row">
+                        <span class="order-id">#${o.id}</span>
+                        <div class="order-details">
+                            <span class="status-badge status-${displayStatus.toLowerCase()}">${displayStatus.toUpperCase()}</span>
+                            <div class="order-items">${formatItemsForDisplay(o.items_summary)}</div>
+                        </div>
+                    </div>`;
+                    
+                    if ((o.status === 'Pending' || o.status === 'Preparing') && prepCount < 10) {
+                        prepContainer.innerHTML += row;
+                        prepCount++;
+                    } else if ((o.status === 'Done' || o.status === 'Canceled') && readyCount < 10) {
+                        readyContainer.innerHTML += row;
+                        readyCount++;
+                    }
+                });
+            } catch (e) {
+                console.error("Server error", e);
+            }
+        }
+
+        setInterval(() => document.getElementById('clock').innerText = new Date().toLocaleTimeString(), 1000);
+        setInterval(loadDisplay, 2000);
+        window.onload = loadDisplay;
+    </script>
+</body>
+</html>

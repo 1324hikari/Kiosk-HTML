@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Kitchen Display</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .kitchen-container { padding: 20px; }
+        .order-card {
+            background: #111;
+            border: 1px solid #333;
+            padding: 20px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 5px solid var(--neon-cyan);
+        }
+        .order-info h2 { color: var(--neon-cyan); margin: 0 0 10px 0; }
+        .order-items { color: white; font-size: 1.2rem; font-family: monospace; }
+        .action-btns { display: flex; gap: 10px; }
+        .btn-finish { background: #00ff00; color: #000; border: none; padding: 15px 25px; font-weight: bold; cursor: pointer; font-size: 1rem; }
+        .btn-cancel { background: #ffcc00; color: #000; border: none; padding: 15px 25px; font-weight: bold; cursor: pointer; font-size: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="scanline-bar"></div>
+    <header class="header">
+        <div class="logo-area">
+            <h1 class="glow-text">KITCHEN DISPLAY</h1>
+            <p class="flicker-text">Status: <span id="server-status" style="color:#00ff00;">ONLINE</span></p>
+        </div>
+        <div id="clock" style="font-family: monospace; color: var(--neon-cyan); font-size: 1.5rem;"></div>
+    </header>
+
+    <div class="kitchen-container" id="kitchen-list">
+        <p style="color:#888; text-align:center; margin-top:50px;">Waiting for orders...</p>
+    </div>
+
+    <div id="adminModal" class="modal">
+        <div class="modal-content" style="border-color:var(--neon-cyan); text-align:center;">
+            <h2 id="modalTitle" style="color:var(--neon-cyan);">INFO</h2>
+            <div id="modalBody" style="color:white; margin:20px 0; text-align:left; font-family:monospace;"></div>
+            <button onclick="closeAdminModal()" style="background:var(--neon-cyan); color:#000; border:none; padding:15px 40px; font-weight:bold; cursor:pointer; width:100%;">ACKNOWLEDGE</button>
+        </div>
+    </div>
+
+    <div id="confirmModal" class="modal">
+        <div class="modal-content" style="border-color:#ffcc00; text-align:center;">
+            <h2 id="confirmTitle" style="color:#ffcc00;">CONFIRM</h2>
+            <p id="confirmMessage" style="color:white; margin:20px 0;"></p>
+            <div style="display:flex; gap:10px;">
+                <button onclick="closeConfirmModal()" style="flex:1; background:#444; color:white; border:none; padding:15px; cursor:pointer;">CANCEL</button>
+                <button id="confirmBtn" style="flex:1; background:#ffcc00; color:#000; border:none; padding:15px; font-weight:bold; cursor:pointer;">CONFIRM</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = `http://${window.location.hostname}:3000`;
+
+        function formatItems(str) {
+            if (!str) return "EMPTY";
+            const items = str.split(', ');
+            const counts = {};
+            items.forEach(x => counts[x] = (counts[x] || 0) + 1);
+            return Object.entries(counts).map(([name, qty]) => `<li>${qty}x ${name}</li>`).join('');
+        }
+
+        async function loadLiveOrders() {
+            try {
+                const res = await fetch(`${API_BASE}/api/orders`);
+                const orders = await res.json();
+                const container = document.getElementById('kitchen-list');
+
+                if (orders.length === 0) {
+                    container.innerHTML = `<h1 style="color:#555; text-align:center; margin-top:50px;">NO ACTIVE ORDERS</h1>`;
+                    return;
+                }
+
+                container.innerHTML = orders.map(o => `
+                    <div class="order-card">
+                        <div class="order-info">
+                            <h2>ORDER #${o.id}</h2>
+                            <ul class="order-items">
+                                ${formatItems(o.items_summary)}
+                            </ul>
+                        </div>
+                        <div class="action-btns">
+                            <button class="btn-finish" onclick="updateStatus(${o.id}, 'Done')">FINISH</button>
+                            <button class="btn-cancel" onclick="updateStatus(${o.id}, 'Canceled')">CANCEL</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                document.getElementById('server-status').innerText = "OFFLINE";
+                document.getElementById('server-status').style.color = "red";
+            }
+        }
+
+        async function updateStatus(id, s) {
+            if (s === 'Canceled') {
+                showConfirmModal("CONFIRM CANCEL", `Are you sure you want to cancel ORDER #${id}?`, async () => {
+                    await fetch(`${API_BASE}/api/orders/status/${id}`, { 
+                        method:'PUT', 
+                        headers:{'Content-Type':'application/json'}, 
+                        body:JSON.stringify({status:s}) 
+                    });
+                    loadLiveOrders();
+                    closeConfirmModal();
+                    showAdminModal("STATUS UPDATED", `Order #${id} CANCELED.`);
+                });
+            } else {
+                await fetch(`${API_BASE}/api/orders/status/${id}`, { 
+                    method:'PUT', 
+                    headers:{'Content-Type':'application/json'}, 
+                    body:JSON.stringify({status:s}) 
+                });
+                loadLiveOrders();
+                showAdminModal("STATUS UPDATED", `Order #${id} marked as ${s.toUpperCase()}.`);
+            }
+        }
+
+        function showAdminModal(title, body) {
+            document.getElementById('modalTitle').innerText = title;
+            document.getElementById('modalBody').innerHTML = body;
+            document.getElementById('adminModal').style.display = 'block';
+        }
+        function closeAdminModal() { document.getElementById('adminModal').style.display = 'none'; }
+
+        function showConfirmModal(title, message, onConfirm) {
+            document.getElementById('confirmTitle').innerText = title;
+            document.getElementById('confirmMessage').innerText = message;
+            document.getElementById('confirmBtn').onclick = onConfirm;
+            document.getElementById('confirmModal').style.display = 'block';
+        }
+        function closeConfirmModal() { document.getElementById('confirmModal').style.display = 'none'; }
+
+        setInterval(() => document.getElementById('clock').innerText = new Date().toLocaleTimeString(), 1000);
+        setInterval(loadLiveOrders, 3000);
+        window.onload = loadLiveOrders;
+    </script>
+</body>
+</html>
